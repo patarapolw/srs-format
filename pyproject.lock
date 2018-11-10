@@ -1,0 +1,16 @@
+[[package]]
+category = "main"
+description = "a little orm"
+name = "peewee"
+optional = false
+platform = "any"
+python-versions = "*"
+version = "3.7.1"
+
+[metadata]
+content-hash = "aa3f1fae1e23c7e35c141561f522c5ce70e1c6cdb75f0cf38a1f9e703ef11d46"
+platform = "*"
+python-versions = "*"
+
+[metadata.hashes]
+peewee = ["a91c3ccff43ab71f08196aba1d17dd2548079744d54adc33d511db1c30b446ba"]
