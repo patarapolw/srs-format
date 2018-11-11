@@ -3,13 +3,16 @@ from datetime import datetime
 
 from . import db
 from .builder import TemplateBuilder
+from .migration import upgrade
 
 
-def init(filename, create=True, **kwargs)->None:
+def init(filename, create=True, **kwargs):
     db.database.init(filename, **kwargs)
 
     if create:
         db.init_tables()
+
+    upgrade()
 
 
 def find_model(_any=None, id_=None, name=None):

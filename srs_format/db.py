@@ -61,6 +61,7 @@ class Tag(BaseModel):
 
 class Deck(BaseModel):
     name = pv.TextField(unique=True, collation='NOCASE')
+    info = sqlite_ext.JSONField(default=dict)
 
     def __repr__(self):
         return f'<Deck: "{self.name}">'
@@ -108,6 +109,7 @@ class Deck(BaseModel):
 class Media(BaseModel):
     data = pv.BlobField()
     h = pv.TextField()
+    info = sqlite_ext.JSONField(default=dict)
 
     class Meta:
         indexes = [
@@ -125,6 +127,7 @@ class Model(BaseModel):
     key_fields = sqlite_ext.JSONField(default=list)
     css = pv.TextField(null=True)
     js = pv.TextField(null=True)
+    info = sqlite_ext.JSONField(default=dict)
 
 
 class Template(BaseModel):
@@ -132,6 +135,7 @@ class Template(BaseModel):
     name = pv.TextField()
     front = pv.TextField()
     back = pv.TextField(null=True)
+    info = sqlite_ext.JSONField(default=dict)
 
     def test_front(self, d):
         text = self.front
@@ -155,6 +159,8 @@ class Note(BaseModel):
 
     created = pv.DateTimeField(constraints=[pv.SQL('DEFAULT CURRENT_TIMESTAMP')])
     modified = pv.TimestampField()
+
+    info = sqlite_ext.JSONField(default=dict)
 
     @property
     def tags(self):
@@ -208,6 +214,9 @@ class Card(BaseModel):
     next_review = pv.DateTimeField(null=True)
     _decks = pv.ManyToManyField(Deck, backref='cards')
 
+    last_review = pv.TimestampField()
+    info = sqlite_ext.JSONField(default=dict)
+
     backup = None
 
     @property
@@ -255,14 +264,16 @@ class Card(BaseModel):
     def unmark(self, tag='marked'):
         return self.note.unmark(tag)
 
-    def right(self):
+    def right(self, step=1):
         if not self.backup:
             self.backup = model_to_dict(self)
 
-        if not self.srs_level:
+        print(self.srs_level)
+
+        if self.srs_level is None:
             self.srs_level = 0
         else:
-            self.srs_level = self.srs_level + 1
+            self.srs_level = self.srs_level + step
 
         srs = Settings.get().srs
         try:
@@ -270,16 +281,31 @@ class Card(BaseModel):
         except IndexError:
             self.next_review = None
 
+        assert isinstance(self.info, dict)
+
+        self.info['lapse'] = 0
+        self.info['streak'] = self.info.get('streak', 0) + 1
+        self.info['total_right'] = self.info.get('total_right', 0) + 1
+
         self.save()
 
     correct = next_srs = right
+
+    def easy(self):
+        return self.right(step=2)
 
     def wrong(self, next_review=timedelta(minutes=10)):
         if not self.backup:
             self.backup = model_to_dict(self)
 
-        if self.srs_level and self.srs_level > 0:
+        if self.srs_level is not None and self.srs_level > 0:
             self.srs_level = self.srs_level - 1
+
+        assert isinstance(self.info, dict)
+
+        self.info['streak'] = 0
+        self.info['lapse'] = self.info.get('lapse', 0) + 1
+        self.info['total_wrong'] = self.info.get('total_wrong', 0) + 1
 
         self.bury(next_review)
 
@@ -293,6 +319,12 @@ class Card(BaseModel):
             self.next_review = datetime.now() + next_review
         else:
             self.next_review = next_review
+
+        self.save()
+
+    def reset(self):
+        self.srs_level = None
+        self.next_review = None
         self.save()
 
     def undo(self):
