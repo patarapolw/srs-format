@@ -18,8 +18,12 @@ database = sqlite_ext.SqliteDatabase(None)
 
 
 class BaseModel(signals.Model):
-    def to_dict(self, max_depth=2):
-        return model_to_dict(self, backrefs=True, manytomany=True, max_depth=max_depth)
+    def to_dict(self, **kwargs):
+        kwargs.setdefault('backrefs', True)
+        kwargs.setdefault('max_depth', 2)
+        kwargs.setdefault('manytomany', True)
+
+        return model_to_dict(self, **kwargs)
 
     class Meta:
         database = database
@@ -131,6 +135,10 @@ class Note(BaseModel):
 
     info = sqlite_ext.JSONField(default=dict)
 
+    def to_dict(self):
+        return super(Note, self).to_dict(manytomany=False, backrefs=False,
+                                         exclude=['_tags'], extra_attrs=['tags'])
+
     @property
     def tags(self):
         return [t.name for t in self._tags]
@@ -190,8 +198,15 @@ class Card(BaseModel):
 
     backup = None
 
+    def to_dict(self, max_depth=2, **kwargs):
+        d = super(Card, self).to_dict(manytomany=False, backrefs=False,
+                                      exclude=['_decks', '_front', 'note'],
+                                      extra_attrs=['decks', 'front', 'back'])
+        d['note'] = self.note.to_dict()
+        return d
+
     @property
-    def deck(self):
+    def decks(self):
         return [d.name for d in self._decks]
 
     @property
@@ -264,8 +279,11 @@ class Card(BaseModel):
 
     correct = next_srs = right
 
-    def easy(self):
-        return self.right(step=2)
+    def easy(self, max_srs_level_enabled=3):
+        if self.srs_level < max_srs_level_enabled:
+            return self.right(step=2)
+        else:
+            raise ValueError
 
     def wrong(self, next_review=timedelta(minutes=10)):
         self.undo()

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "srs-format"
-version = "0.2.1.dev7"
+version = "0.2.1.dev11"
 description = "An alternative to Anki's *.apkg, that is non-zipped peewee SQLite, and self-contained for all media, allowing for easier programming"
 authors = ["Pacharapol Withayasakpunt <patarapolw@gmail.com>"]
 license = "MIT"
