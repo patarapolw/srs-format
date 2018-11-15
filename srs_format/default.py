@@ -13,6 +13,6 @@ DEFAULT = {
         timedelta(weeks=16)
     ],
     'info': {
-        'version': '0.2'
+        'version': '0.2.1'
     }
 }

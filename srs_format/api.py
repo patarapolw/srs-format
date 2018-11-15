@@ -54,13 +54,13 @@ def create_model(name, key_fields: list, templates: list):
         return srs_model.id
 
 
-def find_notes(q_str: str=None, **kwargs):
-    if q_str:
-        raise NotImplementedError
+def find_notes(data=None):
+    if data is None:
+        data = dict()
 
     q = db.Note.select()
 
-    for k, v in kwargs.items():
+    for k, v in data.items():
         q = q.where(db.Note.data[k] == v)
 
     return [n.id for n in q]
@@ -120,3 +120,52 @@ def cards_remove_deck(card_ids, deck: str):
     for card_id in card_ids:
         srs_card = db.Card.get(id=card_id)
         srs_card.remove_deck(deck)
+
+
+def find_cards(q_str):
+    return [c.id for c in db.Card.search(q_str)]
+
+
+def get_deck_dict(filter_=''):
+    def _node_index(dx, comparison):
+        for i, node in enumerate(dx.setdefault('nodes', list())):
+            if node['text'] == comparison:
+                return i
+
+    def _recurse_name_part(dx, np, deck_info, depth=0):
+        i = _node_index(dx, np[depth])
+
+        if i is not None:
+            di = dx['nodes'][i]
+        else:
+            dx['nodes'].append(dict())
+            di = dx['nodes'][-1]
+            di['text'] = np[depth]
+
+        if depth < len(np) - 1:
+            return _recurse_name_part(di, np, deck_info, depth + 1)
+        else:
+            di['deck'] = deck_info
+
+    d = dict()
+    for srs_deck in db.Deck.select().order_by(db.Deck.name):
+        srs_cards = db.Card.search(q_str=filter_, deck=srs_deck.name)
+        if len(srs_cards) > 0:
+            name_parts = srs_deck.name.split('::')
+            _recurse_name_part(d, name_parts, {
+                'id': srs_deck.id,
+                'name': srs_deck.name
+            })
+
+    return d
+
+
+def get_deck_stat(deck_name, filter_=''):
+    return {
+        'due': db.Card.search(q_str=filter_, deck=deck_name, due=True).count(),
+        'remaining': db.Card.search(q_str=filter_, deck=deck_name, due=False).count()
+    }
+
+
+def has_sub_deck(deck_name):
+    return db.Deck.select().where(db.Deck.name.startswith(deck_name + '::')).count() > 0

@@ -5,17 +5,22 @@ from playhouse.shortcuts import model_to_dict, dict_to_model
 from datetime import datetime, timedelta
 import random
 import json
-from typing import Any
 from hashlib import md5
 import logging
+import pytimeparse
+import dateutil.parser
 
 from .default import DEFAULT
+from .util import parse_query
 
 
 database = sqlite_ext.SqliteDatabase(None)
 
 
 class BaseModel(signals.Model):
+    def to_dict(self, max_depth=2):
+        return model_to_dict(self, backrefs=True, manytomany=True, max_depth=max_depth)
+
     class Meta:
         database = database
 
@@ -68,42 +73,6 @@ class Deck(BaseModel):
 
     def __str__(self):
         return self.name
-
-    @classmethod
-    def get_deck_dict(cls, super_deck=None):
-        if super_deck is None:
-            super_deck = ''
-        else:
-            if not isinstance(super_deck, str):
-                super_deck = '::'.join(super_deck)
-            super_deck += '::'
-
-        def _node_index(dx, comparison):
-            for i, node in enumerate(dx.setdefault('nodes', list())):
-                if node['text'] == comparison:
-                    return i
-
-        def _recurse_name_part(dx, np, _srs_deck, depth=0):
-            i = _node_index(dx, np[depth])
-
-            if i is not None:
-                di = dx['nodes'][i]
-            else:
-                dx['nodes'].append(dict())
-                di = dx['nodes'][-1]
-                di['text'] = np[depth]
-
-            if depth < len(np) - 1:
-                return _recurse_name_part(di, np, _srs_deck, depth + 1)
-            else:
-                di['deck'] = _srs_deck
-
-        d = dict()
-        for srs_deck in cls.select().where(cls.name.startswith(super_deck)).order_by(cls.name):
-            name_parts = srs_deck.name.replace(super_deck, '').split('::')
-            _recurse_name_part(d, name_parts, srs_deck)
-
-        return d
 
 
 class Media(BaseModel):
@@ -158,7 +127,7 @@ class Note(BaseModel):
     _tags = pv.ManyToManyField(Tag, backref='notes')
 
     created = pv.DateTimeField(constraints=[pv.SQL('DEFAULT CURRENT_TIMESTAMP')])
-    modified = pv.TimestampField()
+    modified = pv.DateTimeField(constraints=[pv.SQL('DEFAULT CURRENT_TIMESTAMP')])
 
     info = sqlite_ext.JSONField(default=dict)
 
@@ -189,6 +158,8 @@ def note_pre_save(model_class, instance, created):
         d[k] = instance.data[k]
     instance.constraint = d
 
+    instance.modified = datetime.now()
+
 
 @signals.post_save(sender=Note)
 def note_post_save(model_class, instance, created):
@@ -214,7 +185,7 @@ class Card(BaseModel):
     next_review = pv.DateTimeField(null=True)
     _decks = pv.ManyToManyField(Deck, backref='cards')
 
-    last_review = pv.TimestampField()
+    last_review = pv.DateTimeField(constraints=[pv.SQL('DEFAULT CURRENT_TIMESTAMP')])
     info = sqlite_ext.JSONField(default=dict)
 
     backup = None
@@ -265,6 +236,8 @@ class Card(BaseModel):
         return self.note.unmark(tag)
 
     def right(self, step=1):
+        self.undo()
+
         if not self.backup:
             self.backup = model_to_dict(self)
 
@@ -295,6 +268,8 @@ class Card(BaseModel):
         return self.right(step=2)
 
     def wrong(self, next_review=timedelta(minutes=10)):
+        self.undo()
+
         if not self.backup:
             self.backup = model_to_dict(self)
 
@@ -343,25 +318,90 @@ class Card(BaseModel):
         return cls.iter_quiz(due=True, **kwargs)
 
     @classmethod
-    def search(cls, deck=None, tags=None, due=Any, offset=0, limit=None):
+    def search(cls, q_str='', deck=None, tags=None, due=None, offset=0, limit=None):
+        """
+
+        :param q_str:
+        :param deck:
+        :param tags:
+        :param bool|None|timedelta|datetime due:
+        :param offset:
+        :param limit:
+        :return:
+        """
         query = cls.select()
+        due_is_set = False
+        note_keys = None
+
+        result = parse_query(q_str)
+        if result:
+            for seg in result:
+                if len(seg) == 1:
+                    if note_keys is None:
+                        note_keys = set()
+                        for srs_note in Note.select(Note.data):
+                            note_keys.update(srs_note.data.keys())
+
+                        note_keys = tuple(note_keys)
+                    q_note = Note.data[note_keys[0]].contains(seg[0])
+
+                    for k in note_keys[1:]:
+                        q_note |= Note.data[k].contains(seg[0])
+
+                    query = query.switch(cls).join(Note).where(q_note)
+                else:
+                    if seg[0] == 'due':
+                        due_is_set = True
+                        if seg[2].lower() == 'true':
+                            query = query.switch(cls).where(cls.next_review < datetime.now())
+                        elif seg[2].lower() == 'false':
+                            query = query.switch(cls).where(cls.next_review.is_null(True))
+                        else:
+                            dur_sec = pytimeparse.parse(seg[2])
+                            if dur_sec:
+                                _due = datetime.now() + timedelta(seconds=dur_sec)
+                            else:
+                                _due = dateutil.parser.parse(seg[2])
+
+                            query = query.switch(cls).where(cls.next_review < _due)
+                    elif seg[0] == 'deck':
+                        deck_q = (Deck.name == seg[2])
+                        if seg[1] != '=':
+                            deck_q = (deck_q | Deck.name.startswith(seg[2] + '::'))
+
+                        query = query.switch(cls).join(CardDeck).join(Deck).where(deck_q)
+                    elif seg[0] == 'tag':
+                        if seg[1] == '=':
+                            query = query.switch(cls).join(Note).join(NoteTag).join(Tag)\
+                                .where(Tag.name == seg[2])
+                        else:
+                            query = query.switch(cls).join(Note).join(NoteTag).join(Tag)\
+                                .where(Tag.name.contains(seg[2]))
+                    else:
+                        if seg[1] == '=':
+                            query = query.switch(cls).join(Note).where(Note.data[seg[0]] == seg[2])
+                        elif seg[1] == '>':
+                            query = query.switch(cls).join(Note).where(Note.data[seg[0]] > seg[2])
+                        elif seg[1] == '<':
+                            query = query.switch(cls).join(Note).where(Note.data[seg[0]] < seg[2])
+                        else:
+                            query = query.switch(cls).join(Note).where(Note.data[seg[0]].contains(seg[2]))
 
         if due is True:
-            query = query.where(Card.next_review < datetime.now())
+            query = query.switch(cls).where(cls.next_review < datetime.now())
         elif due is False:
-            query = query.where(Card.next_review >= datetime.now())
-        elif due is None:
-            query = query.where(Card.next_review.is_null(True))
+            query = query.switch(cls).where(cls.next_review.is_null(True))
         elif isinstance(due, timedelta):
-            query = query.where(Card.next_review < datetime.now() + due)
+            query = query.switch(cls).where(cls.next_review < datetime.now() + due)
         elif isinstance(due, datetime):
-            query = query.where(Card.next_review < due)
+            query = query.switch(cls).where(cls.next_review < due)
+        else:
+            if not due_is_set:
+                query = query.where((cls.next_review < datetime.now()) | cls.next_review.is_null(True))
 
         if deck:
-            if not isinstance(deck, str):
-                deck = '::'.join(deck)
-
-            query = query.switch(cls).join(CardDeck).join(Deck).where(Deck.name.startswith(deck))
+            query = query.switch(cls).join(CardDeck).join(Deck).where(Deck.name.startswith(deck + '::')
+                                                                      | (Deck.name == deck))
 
         if tags:
             for tag in tags:
@@ -383,6 +423,7 @@ CardDeck = Card._decks.get_through_model()
 @signals.pre_save(sender=Card)
 def card_pre_save(model_class, instance, created):
     instance._front = instance.front
+    instance.modified = datetime.now()
 
 
 def init_tables():

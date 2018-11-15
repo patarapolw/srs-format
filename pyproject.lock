@@ -7,10 +7,43 @@ platform = "any"
 python-versions = "*"
 version = "3.7.1"
 
+[[package]]
+category = "main"
+description = "Extensions to the standard Python datetime module"
+name = "python-dateutil"
+optional = false
+platform = "*"
+python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*"
+version = "2.7.5"
+
+[package.dependencies]
+six = ">=1.5"
+
+[[package]]
+category = "main"
+description = "Time expression parser"
+name = "pytimeparse"
+optional = false
+platform = "*"
+python-versions = "*"
+version = "1.1.8"
+
+[[package]]
+category = "main"
+description = "Python 2 and 3 compatibility utilities"
+name = "six"
+optional = false
+platform = "*"
+python-versions = "*"
+version = "1.11.0"
+
 [metadata]
-content-hash = "aa3f1fae1e23c7e35c141561f522c5ce70e1c6cdb75f0cf38a1f9e703ef11d46"
+content-hash = "3198b184ec47b0b4fa7e6b9f305ed0e4e6bfc1c37feac3a0078c9092d52e34f2"
 platform = "*"
 python-versions = "*"
 
 [metadata.hashes]
 peewee = ["a91c3ccff43ab71f08196aba1d17dd2548079744d54adc33d511db1c30b446ba"]
+python-dateutil = ["063df5763652e21de43de7d9e00ccf239f953a832941e37be541614732cdfc93", "88f9287c0174266bb0d8cedd395cfba9c58e87e5ad86b2ce58859bc11be3cf02"]
+pytimeparse = ["04b7be6cc8bd9f5647a6325444926c3ac34ee6bc7e69da4367ba282f076036bd", "e86136477be924d7e670646a98561957e8ca7308d44841e21f5ddea757556a0a"]
+six = ["70e8a77beed4562e7f14fe23a786b54f6296e34344c23bc42f07b15018ff98e9", "832dc0e10feb1aa2c68dcc57dbb658f1c7e65b9b61af69048abc87a2db00a0eb"]
